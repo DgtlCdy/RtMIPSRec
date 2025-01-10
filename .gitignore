@@ -1,0 +1,8 @@
+data/Amazon_Beauty
+data/Amazon_Video_Games
+data/FourSquare_NYC
+data/FourSquare_TKY
+data/Gowalla
+
+__pycache__/
+*.pyc
