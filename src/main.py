@@ -74,11 +74,11 @@ def main():
         data_dict[phase] = model_name.Dataset(model, corpus, phase)
         data_dict[phase].prepare()
 
-    # 对RtMIPSRec模型需要构建物品间相似度矩阵
+    # 训练模型前构建物品间相似度矩阵
     if 'RtMIPSRec' in init_args.model_name:
         model.get_gram_matrix(data_dict['train'])
 
-    # Run model
+    # 训练模型
     runner = runner_name(args, model)
     logging.info('Test Before Training: ' + runner.print_res(data_dict['test']))
     if args.load > 0:
@@ -86,12 +86,13 @@ def main():
     if args.train > 0:
         runner.train(data_dict)
 
-    # Evaluate final results
+    # 计算性能指标
     eval_res = runner.print_res(data_dict['dev'])
     logging.info(os.linesep + 'Dev  After Training: ' + eval_res)
     eval_res = runner.print_res(data_dict['test'])
     logging.info(os.linesep + 'Test After Training: ' + eval_res)
 
+    # 将性能指标信息写入日志
     utils.write_test_result(f'{init_args.model_name}+{args.dataset}\'s test result: {eval_res}.', f'test_result.txt')
 
     if args.save_final_results==1: # save the prediction results
@@ -179,12 +180,12 @@ if __name__ == '__main__':
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
 
-        # 根据模型名获取模型和对应的reader、runner，这几个name指代类本身
+        # 根据模型名获取模型和对应的reader、runner
         model_name = eval('{0}.{0}{1}'.format(init_args.model_name,init_args.model_mode))
         reader_name = eval('{0}.{0}'.format(model_name.reader))  # model chooses the reader
         runner_name = eval('{0}.{0}'.format(model_name.runner))  # model chooses the runner
 
-        # Args
+        # 录入参数
         parser = argparse.ArgumentParser(description='')
         parser = parse_global_args(parser)
         parser = reader_name.parse_data_args(parser, dataset_default)
@@ -207,6 +208,7 @@ if __name__ == '__main__':
         if args.model_path == '':
             args.model_path = '../model/{}/{}.pt'.format(init_args.model_name+init_args.model_mode, log_file_name)
 
+        # 规避重复注册日志
         if is_handler_added == 0:
             utils.check_dir(args.log_file)
             logging.basicConfig(filename=args.log_file, level=args.verbose)
@@ -214,6 +216,5 @@ if __name__ == '__main__':
             logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
             is_handler_added = 1
         logging.info(init_args)
-        # logging.info(f'test: {model_name_default}, {dataset_default}.')
 
         main()
