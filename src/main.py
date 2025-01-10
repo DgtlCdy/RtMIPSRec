@@ -45,7 +45,7 @@ def main():
     # Random seed
     utils.init_seed(args.random_seed)
 
-    # GPU
+    # 设定为在GPU中运行
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cpu')
     if args.gpu != '' and torch.cuda.is_available():
@@ -53,7 +53,7 @@ def main():
     logging.info('Device: {}'.format(args.device))
 
     # 读取数据集
-    corpus_path = os.path.join(args.path, args.dataset, model_name.reader+args.data_appendix+ '.pkl')
+    corpus_path = os.path.join(args.path, args.dataset, model_name.reader + '.pkl')
     if not args.regenerate and os.path.exists(corpus_path):
         logging.info('Load corpus from {}'.format(corpus_path))
         corpus = pickle.load(open(corpus_path, 'rb'))
@@ -62,12 +62,11 @@ def main():
         logging.info('Save corpus to {}'.format(corpus_path))
         pickle.dump(corpus, open(corpus_path, 'wb'))
 
-    # Define model
+    # 创建推荐模型
     model = model_name(args, corpus).to(args.device)
     logging.info('#params: {}'.format(model.count_variables()))
     logging.info(model)
 
-    # Define dataset
     # 初始化训练集、验证集和测试集
     data_dict = dict()
     for phase in ['train', 'dev', 'test']:
@@ -94,12 +93,13 @@ def main():
 
     # 将性能指标信息写入日志
     utils.write_test_result(f'{init_args.model_name}+{args.dataset}\'s test result: {eval_res}.', f'test_result.txt')
-
     if args.save_final_results==1: # save the prediction results
         save_rec_results(data_dict['dev'], runner, 100)
         save_rec_results(data_dict['test'], runner, 100)
     model.actions_after_train()
     logging.info(os.linesep + '-' * 45 + ' END: ' + utils.get_time() + ' ' + '-' * 45)
+
+    return
 
 
 def save_rec_results(dataset, runner, topk):
@@ -182,8 +182,8 @@ if __name__ == '__main__':
 
         # 根据模型名获取模型和对应的reader、runner
         model_name = eval('{0}.{0}{1}'.format(init_args.model_name,init_args.model_mode))
-        reader_name = eval('{0}.{0}'.format(model_name.reader))  # model chooses the reader
-        runner_name = eval('{0}.{0}'.format(model_name.runner))  # model chooses the runner
+        reader_name = eval('{0}.{0}'.format(model_name.reader))
+        runner_name = eval('{0}.{0}'.format(model_name.runner))
 
         # 录入参数
         parser = argparse.ArgumentParser(description='')
@@ -193,13 +193,8 @@ if __name__ == '__main__':
         parser = model_name.parse_model_args(parser)
         args, extras = parser.parse_known_args()
 
-        args.data_appendix = '' # save different version of data for, e.g., context-aware readers with different groups of context
-        if 'Context' in model_name.reader:
-            args.data_appendix = '_context%d%d%d'%(args.include_item_features,args.include_user_features,
-                                            args.include_situation_features)
-
         # 日志配置
-        log_args = [init_args.model_name+init_args.model_mode, args.dataset+args.data_appendix, str(args.random_seed)]
+        log_args = [init_args.model_name+init_args.model_mode, args.dataset, str(args.random_seed)]
         for arg in ['lr', 'l2'] + model_name.extra_log_args:
             log_args.append(arg + '=' + str(eval('args.' + arg)))
         log_file_name = '__'.join(log_args).replace(' ', '__')
