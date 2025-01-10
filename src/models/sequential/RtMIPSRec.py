@@ -1,14 +1,7 @@
 # -*- coding: UTF-8 -*-
-# @Author  : Chenyang Wang
-# @Email   : THUwangcy@gmail.com
+# @Author  : Chao Deng
+# @Email   : dengch26@mail2.sysu.edu.cn
 
-""" RtMIPSRec
-Reference:
-    "Self-attentive Sequential Recommendation"
-    Kang et al., IEEE'2018.
-Note:
-    When incorporating position embedding, we make the position index start from the most recent interaction.
-"""
 
 import torch
 import torch.nn as nn
@@ -296,25 +289,18 @@ class RtMIPSRec(SequentialModel, RtMIPSRecBase):
         gram_matrix = norm_mat.T.dot(norm_mat)
         gram_matrix =  torch.Tensor(gram_matrix).to(self.device)
 
-        # 方法0：取原生的相似度
-        # self.gram_matrix = gram_matrix
-        # return
+        # 取高阶相似度
+        item_embedding_r2 = gram_matrix @ self.R.T
+        gram_matrix_r2 = item_embedding_r2 @ item_embedding_r2.T
+        gram_matrix_r2 =  torch.nn.functional.normalize(gram_matrix_r2)
+        gram_matrix_r2 = gram_matrix_r2 / gram_matrix_r2.mean() * gram_matrix.mean()
+        gram_matrix = gram_matrix * 0.8 + gram_matrix_r2 * 0.2
 
-        # 方法1：取高阶相似度
-        # item_embedding_r2 = gram_matrix @ self.R.T
-        # gram_matrix_r2 = item_embedding_r2 @ item_embedding_r2.T
-        # gram_matrix_r2 =  torch.nn.functional.normalize(gram_matrix_r2)
-        # gram_matrix_r2 = gram_matrix_r2 / gram_matrix_r2.mean() * gram_matrix.mean()
-        # gram_matrix = gram_matrix * 0.5 + gram_matrix_r2 * 0.5
-        # self.gram_matrix = gram_matrix * 0.7 + gram_matrix_r2 * 0.3
-        # return
-
-        # 方法2：取top相似度
-        # 取top500的相似度去做
-        indices = torch.topk(gram_matrix, 500, dim=1).indices
+        # 取top10%的相似度
+        top = int(self.item_num * 0.1)
+        indices = torch.topk(gram_matrix, top, dim=1).indices
         gram_matrix_topk = torch.zeros_like(gram_matrix)
         gram_matrix_topk.scatter_(1, indices, gram_matrix.gather(1, indices))
-
         gram_matrix_topk = torch.nn.functional.normalize(gram_matrix_topk, p=2)
         self.gram_matrix = gram_matrix_topk
 
@@ -323,7 +309,8 @@ class RtMIPSRec(SequentialModel, RtMIPSRecBase):
         out_dict = RtMIPSRecBase.forward(self, feed_dict)
         # return {'prediction': out_dict['prediction']}
         return {'prediction': out_dict['prediction'], 'kl': out_dict['kl']}
-    
+
+
 class RtMIPSRecImpression(ImpressionSeqModel, RtMIPSRecBase):
     reader = 'ImpressionSeqReader'
     runner = 'ImpressionRunner'

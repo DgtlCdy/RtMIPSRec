@@ -1,4 +1,7 @@
 # -*- coding: UTF-8 -*-
+# @Author  : Chao Deng
+# @Email   : dengch26@mail2.sysu.edu.cn
+
 
 import os
 import sys
@@ -9,12 +12,7 @@ import pandas as pd
 import torch
 
 from helpers import *
-# from models.general import *
 from models.sequential import *
-# from models.developing import *
-# from models.context import *
-# from models.context_seq import *
-# from models.reranker import *
 from utils import utils
 
 
@@ -54,7 +52,7 @@ def main():
         args.device = torch.device('cuda')
     logging.info('Device: {}'.format(args.device))
 
-    # Read data，corpus就是一个Reader类的对象
+    # 读取数据集
     corpus_path = os.path.join(args.path, args.dataset, model_name.reader+args.data_appendix+ '.pkl')
     if not args.regenerate and os.path.exists(corpus_path):
         logging.info('Load corpus from {}'.format(corpus_path))
