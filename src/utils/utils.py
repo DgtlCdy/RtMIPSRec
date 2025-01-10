@@ -135,4 +135,3 @@ def write_test_result(str, test_result_name='test_result.txt'):
     test_result_path = os.path.join(ROOT_PATH, test_result_name)
     with open(test_result_path, 'a') as test_result:
         print(str, file=test_result)
-
