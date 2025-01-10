@@ -1,4 +1,7 @@
 # -*- coding: UTF-8 -*-
+# @Author  : Chao Deng
+# @Email   : dengch26@mail2.sysu.edu.cn
+
 
 import os
 import sys
@@ -9,12 +12,7 @@ import pandas as pd
 import torch
 
 from helpers import *
-# from models.general import *
 from models.sequential import *
-# from models.developing import *
-# from models.context import *
-# from models.context_seq import *
-# from models.reranker import *
 from utils import utils
 
 
@@ -47,15 +45,15 @@ def main():
     # Random seed
     utils.init_seed(args.random_seed)
 
-    # GPU
+    # 设定为在GPU中运行
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cpu')
     if args.gpu != '' and torch.cuda.is_available():
         args.device = torch.device('cuda')
     logging.info('Device: {}'.format(args.device))
 
-    # Read data，corpus就是一个Reader类的对象
-    corpus_path = os.path.join(args.path, args.dataset, model_name.reader+args.data_appendix+ '.pkl')
+    # 读取数据集
+    corpus_path = os.path.join(args.path, args.dataset, model_name.reader + '.pkl')
     if not args.regenerate and os.path.exists(corpus_path):
         logging.info('Load corpus from {}'.format(corpus_path))
         corpus = pickle.load(open(corpus_path, 'rb'))
@@ -64,23 +62,22 @@ def main():
         logging.info('Save corpus to {}'.format(corpus_path))
         pickle.dump(corpus, open(corpus_path, 'wb'))
 
-    # Define model
+    # 创建推荐模型
     model = model_name(args, corpus).to(args.device)
     logging.info('#params: {}'.format(model.count_variables()))
     logging.info(model)
 
-    # Define dataset
     # 初始化训练集、验证集和测试集
     data_dict = dict()
     for phase in ['train', 'dev', 'test']:
         data_dict[phase] = model_name.Dataset(model, corpus, phase)
         data_dict[phase].prepare()
 
-    # 对RtMIPSRec模型需要构建物品间相似度矩阵
+    # 训练模型前构建物品间相似度矩阵
     if 'RtMIPSRec' in init_args.model_name:
         model.get_gram_matrix(data_dict['train'])
 
-    # Run model
+    # 训练模型
     runner = runner_name(args, model)
     logging.info('Test Before Training: ' + runner.print_res(data_dict['test']))
     if args.load > 0:
@@ -88,19 +85,21 @@ def main():
     if args.train > 0:
         runner.train(data_dict)
 
-    # Evaluate final results
+    # 计算性能指标
     eval_res = runner.print_res(data_dict['dev'])
     logging.info(os.linesep + 'Dev  After Training: ' + eval_res)
     eval_res = runner.print_res(data_dict['test'])
     logging.info(os.linesep + 'Test After Training: ' + eval_res)
 
+    # 将性能指标信息写入日志
     utils.write_test_result(f'{init_args.model_name}+{args.dataset}\'s test result: {eval_res}.', f'test_result.txt')
-
     if args.save_final_results==1: # save the prediction results
         save_rec_results(data_dict['dev'], runner, 100)
         save_rec_results(data_dict['test'], runner, 100)
     model.actions_after_train()
     logging.info(os.linesep + '-' * 45 + ' END: ' + utils.get_time() + ' ' + '-' * 45)
+
+    return
 
 
 def save_rec_results(dataset, runner, topk):
@@ -181,12 +180,12 @@ if __name__ == '__main__':
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
 
-        # 根据模型名获取模型和对应的reader、runner，这几个name指代类本身
+        # 根据模型名获取模型和对应的reader、runner
         model_name = eval('{0}.{0}{1}'.format(init_args.model_name,init_args.model_mode))
-        reader_name = eval('{0}.{0}'.format(model_name.reader))  # model chooses the reader
-        runner_name = eval('{0}.{0}'.format(model_name.runner))  # model chooses the runner
+        reader_name = eval('{0}.{0}'.format(model_name.reader))
+        runner_name = eval('{0}.{0}'.format(model_name.runner))
 
-        # Args
+        # 录入参数
         parser = argparse.ArgumentParser(description='')
         parser = parse_global_args(parser)
         parser = reader_name.parse_data_args(parser, dataset_default)
@@ -194,13 +193,8 @@ if __name__ == '__main__':
         parser = model_name.parse_model_args(parser)
         args, extras = parser.parse_known_args()
 
-        args.data_appendix = '' # save different version of data for, e.g., context-aware readers with different groups of context
-        if 'Context' in model_name.reader:
-            args.data_appendix = '_context%d%d%d'%(args.include_item_features,args.include_user_features,
-                                            args.include_situation_features)
-
-        # Logging configuration
-        log_args = [init_args.model_name+init_args.model_mode, args.dataset+args.data_appendix, str(args.random_seed)]
+        # 日志配置
+        log_args = [init_args.model_name+init_args.model_mode, args.dataset, str(args.random_seed)]
         for arg in ['lr', 'l2'] + model_name.extra_log_args:
             log_args.append(arg + '=' + str(eval('args.' + arg)))
         log_file_name = '__'.join(log_args).replace(' ', '__')
@@ -209,6 +203,7 @@ if __name__ == '__main__':
         if args.model_path == '':
             args.model_path = '../model/{}/{}.pt'.format(init_args.model_name+init_args.model_mode, log_file_name)
 
+        # 规避重复注册日志
         if is_handler_added == 0:
             utils.check_dir(args.log_file)
             logging.basicConfig(filename=args.log_file, level=args.verbose)
@@ -216,6 +211,5 @@ if __name__ == '__main__':
             logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
             is_handler_added = 1
         logging.info(init_args)
-        # logging.info(f'test: {model_name_default}, {dataset_default}.')
 
         main()

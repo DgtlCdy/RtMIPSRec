@@ -6,3 +6,5 @@ data/Gowalla
 
 __pycache__/
 *.pyc
+
+test_result.txt
