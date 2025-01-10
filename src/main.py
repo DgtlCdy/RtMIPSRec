@@ -197,7 +197,7 @@ if __name__ == '__main__':
             args.data_appendix = '_context%d%d%d'%(args.include_item_features,args.include_user_features,
                                             args.include_situation_features)
 
-        # Logging configuration
+        # 日志配置
         log_args = [init_args.model_name+init_args.model_mode, args.dataset+args.data_appendix, str(args.random_seed)]
         for arg in ['lr', 'l2'] + model_name.extra_log_args:
             log_args.append(arg + '=' + str(eval('args.' + arg)))

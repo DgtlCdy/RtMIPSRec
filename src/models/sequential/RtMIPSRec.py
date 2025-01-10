@@ -50,10 +50,6 @@ class RtMIPSRecBase(object):
         for u, user_df in corpus.data_df['test'].groupby('user_id'):
             time_seqs.extend(user_df['time'].values.tolist())
         time_seqs = sorted(set([int(_) for _ in time_seqs]))
-        # time_b = torch.Tensor(time_seqs + [0xFFFFFFFF]).int()
-        # time_a = torch.Tensor([0] + time_seqs).int()
-        # time_intervals = time_b - time_a
-        # self.min_interval = min(time_intervals).item()
         self.min_timestamp = time_seqs[0]
         self.max_timestamp = time_seqs[-1]
         self.min_interval = 0xFFFFFFFF
@@ -76,7 +72,7 @@ class RtMIPSRecBase(object):
         # self.t_embeddings_ffn = nn.Embedding(self.max_time + 2, self.emb_size)
 
         self.transformer_block = nn.ModuleList([
-            layers.TransformerLayer_Ti(d_model=self.emb_size, d_ff=self.emb_size, d_t=self.time_size, n_heads=self.num_heads,
+            layers.TransformerLayer_Rt(d_model=self.emb_size, d_ff=self.emb_size, d_t=self.time_size, n_heads=self.num_heads,
                                     dropout=self.dropout, kq_same=False)
             for _ in range(self.num_layers)
         ])
@@ -87,37 +83,22 @@ class RtMIPSRecBase(object):
         i_ids = feed_dict['item_id']  # [batch_size, -1]
         history = feed_dict['history_items']  # [batch_size, history_max]
         t_history = feed_dict['history_times']  # [batch_size, history_max]
-
-        # 这里作为实时推荐任务，应当为feed_dict添加item_id对应的time，包括训练、验证、测试的三个时间
-        t_target = feed_dict['target_time']  # 应当与i_ids一致
-
+        t_target = feed_dict['target_time']  # item_id对应的time，包括训练、验证、测试的三个时间，规模与i_ids一致
         lengths = feed_dict['lengths']  # [batch_size] # 每一个用户序列的长度，取值1-20
 
         batch_size, seq_len = history.shape
         valid_his = (history > 0).long()
 
+        # 兴趣编码
         interests_sim = self.gram_matrix[history]
-        # 4种构建基于相似的兴趣的方式：
-        # 0，不使用交互，传入自身Embedding直接作为兴趣
-        # his_vectors = self.i_embeddings(history)
-        # 1，直接拿相似度矩阵，哈达玛乘一个全1向量
-        interests_sim = interests_sim
         interests_input = interests_sim @ self.i_embeddings.weight
         his_vectors = interests_input
-        # 2，哈达玛乘一个用户全局交互
-        # user_interaction = self.R[u_ids]
-        # interests_sim = interests_sim[:, :, :] * user_interaction[:, None, :]
-        # interests_sim = torch.nn.functional.normalize(interests_sim, p=2)
-        # interests_input = interests_sim @ self.i_embeddings.weight
-        # his_vectors = interests_input
-        # 3，哈达玛乘一个用户会话内交互，即lengths个交互
-        # user_interaction = torch.zeros(batch_size, self.item_num).to(self.device)
-        # for idx in range(batch_size):
-        #     user_interaction[idx, history[idx, :lengths[idx]]] = 1
-        # interests_sim = interests_sim[:, :, :] * user_interaction[:, None, :]
-        # interests_sim = torch.nn.functional.normalize(interests_sim, p=2)
-        # interests_input = interests_sim @ self.i_embeddings.weight
-        # his_vectors = interests_input
+
+        # 位置编码
+        # lengths:  [4, 2, 5]
+        # position: [[4, 3, 2, 1, 0], [2, 1, 0, 0, 0], [5, 4, 3, 2, 1]]
+        position = (lengths[:, None] - self.len_range[None, :seq_len]) * valid_his
+        pos_vectors = self.p_embeddings(position)
 
         # 获取每一个交互离最新交互的时间间隔current_interval
         t_history = t_history
@@ -128,59 +109,16 @@ class RtMIPSRecBase(object):
         # current_interval = max_values.unsqueeze(-1).expand_as(t_history) - t_history
         current_interval = realtime.unsqueeze(-1).expand_as(t_history) - t_history
 
-        # 将时间间隔转化为时间Embedding
-        # # 方案1：小于1的幂次
-        # convert_pow = torch.log(torch.tensor(self.max_time)) / torch.log(torch.tensor(self.max_timestamp_converted))
-        # idx = torch.pow(current_interval, convert_pow).int()
-        # # 方案2：线性
-        # convert_line = torch.tensor(self.max_time) / torch.tensor(self.max_timestamp_converted)
-        # idx = (current_interval * convert_line).int()
-        # 方案3：对数
+        # 将时间间隔转化为时间Embedding，并索引对应的时间Embedding
         convert_log_a = torch.pow(torch.tensor(self.max_timestamp_converted), torch.tensor(1. / self.max_time))
-        # convert_log = torch.exp(convert_log_a), convert_log_a = torch.log(convert_log)
         idx = (torch.log(current_interval + 1) / torch.log(convert_log_a)).int()
-
-        # 获取单调和周期性的时间Embedding
         t_ebds_m = self.t_embeddings_gm(idx) # 单调部分完成，但还没有卷积的部分
 
-        # idx_g = torch.Tensor(range(self.max_time)).int().to(torch.device('cuda'))
-        # scores_g = his_vectors @ self.t_embeddings_gp_k(idx_g).T / (self.emb_size ** 0.5)
-        # scores_valid = torch.zeros_like(scores_g)
-        # for i in range(his_vectors.size(0)):
-        #     for j in range(lengths[i]):
-        #         scores_valid[i, j, :idx[i, j]] = 1
-        # 这个方法出现未知的cuda问题，暂时不用
-        # valid_indice = torch.tril(torch.ones(128, 128), diagonal=0).int().to(self.device)
-        # scores_valid = valid_indice[idx]
 
-        # scores_g_weighted = torch.softmax(scores_g, dim=-1) * scores_valid
-        # scores_g_weighted = torch.nn.functional.normalize(scores_g_weighted, p=1, dim=-1)
-        # t_ebds_p = scores_g_weighted @ self.t_embeddings_gp_v(idx_g)
-
-        # scores_g_weighted = torch.zeros_like(scores_g)
-        # for i in range(his_vectors.size(0)):
-        #     for j in range(lengths[i]):
-        #         # i_vector = his_vectors[i, j, :]
-        #         i_idx = idx[i, j]
-        #         idx_v = torch.Tensor(range(i_idx)).int().to(torch.device('cuda'))
-        #         # 基于注意力，将得到的时间Embedding传给t_ebds_p
-        #         scores = scores_g[i, j, :i_idx]
-        #         scores_g_weighted[i, j, :i_idx] = torch.softmax(scores, dim=-1)
-        #         # scores = torch.softmax(scores, dim=-1)
-        #         # t_ebds_p[i, j, :]  = scores @ self.t_embeddings_gp_v(idx_v)
-        # t_ebds_p = scores_g_weighted @ self.t_embeddings_gp_v(idx_g)
-
-        # Position embedding
-        # lengths:  [4, 2, 5]
-        # position: [[4, 3, 2, 1, 0], [2, 1, 0, 0, 0], [5, 4, 3, 2, 1]]
-        position = (lengths[:, None] - self.len_range[None, :seq_len]) * valid_his
-        pos_vectors = self.p_embeddings(position)
-
-        # his_vectors = his_vectors + pos_vectors
-        # his_vectors = his_vectors + pos_vectors + t_ebds_sa
+        # 叠加得到混合兴趣Embedding
         his_vectors = his_vectors + pos_vectors + t_ebds_m
 
-        # Self-attention
+        # 进行自注意编码
         causality_mask = np.tril(np.ones((1, 1, seq_len, seq_len), dtype=np.int32)) # 只取下三角的矩阵，表示seq的邻接关系
         attn_mask = torch.from_numpy(causality_mask).to(torch.device('cuda'))
         attn_mask_full = torch.ones_like(attn_mask)
@@ -191,7 +129,6 @@ class RtMIPSRecBase(object):
         his_vectors = his_vectors * valid_his[:, :, None].float()
 
         # 针对获取的时间取旋转的权重
-        # 维度：256*20*time_size
         # 其实只需要知道最短时间间隔，也就是时间单位即可，amazon的数据集，最小时间间隔是86400秒，可以先用直接的时间来估计
         # 现在已知current_interval，即每个兴趣的相对时间间隔，而且是调整好的，现在要求出对应的每个权重
         # 假设周期最长为10年
@@ -207,6 +144,7 @@ class RtMIPSRecBase(object):
         first_element = unit_oneday * 1
         last_element = unit_oneday * 10 * 365
         length = self.time_size
+
         # 计算公比
         # ratio = (last_element / first_element) ** (1 / (length - 1))
         # period = first_element * (ratio ** torch.arange(length)).float()
